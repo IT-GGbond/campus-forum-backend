@@ -5,7 +5,7 @@
 1. 确保后端服务已启动:
 
 ```bash
-ssh dbadmin@192.168.150.247
+ssh dbadmin@192.168.190.247
 cd /home/dbadmin/campus-forum-backend
 node app.js
 ```
@@ -13,13 +13,13 @@ node app.js
 2. 上传测试脚本到服务器:
 
 ```bash
-scp test-comments.sh dbadmin@192.168.150.247:/home/dbadmin/campus-forum-backend/
+scp test-comments.sh dbadmin@192.168.190.247:/home/dbadmin/campus-forum-backend/
 ```
 
 ## 运行测试
 
 ```bash
-ssh dbadmin@192.168.150.247
+ssh dbadmin@192.168.190.247
 cd /home/dbadmin/campus-forum-backend
 bash test-comments.sh
 ```

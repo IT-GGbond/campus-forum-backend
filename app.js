@@ -234,7 +234,7 @@ const startServer = async () => {
             console.log(`   环境: ${process.env.NODE_ENV}`);
             console.log(`   端口: ${PORT}`);
             console.log(`   本地访问: http://localhost:${PORT}`);
-            console.log(`   网络访问: http://192.168.150.247:${PORT}`);
+            console.log(`   网络访问: http://192.168.190.247:${PORT}`);
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('');
             console.log('✅ 可用接口:');
