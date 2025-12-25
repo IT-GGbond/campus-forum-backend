@@ -74,7 +74,9 @@ class Comment {
      * @returns {Promise<Object>} { comments, total }
      */
     static async findByPostId({ post_id, page = 1, pageSize = 20, status = 'normal' }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -103,8 +105,8 @@ class Comment {
              LEFT JOIN users u ON c.user_id = u.user_id
              WHERE c.post_id = ? AND c.status = ? AND c.parent_id IS NULL
              ORDER BY c.created_at ASC
-             LIMIT ? OFFSET ?`,
-            [post_id, status, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [post_id, status]
         );
 
         return { comments: rows, total };
@@ -211,7 +213,9 @@ class Comment {
      * @returns {Promise<Object>}
      */
     static async findByUserId({ user_id, page = 1, pageSize = 20 }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -236,8 +240,8 @@ class Comment {
              LEFT JOIN posts p ON c.post_id = p.post_id
              WHERE c.user_id = ? AND c.status = 'normal'
              ORDER BY c.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [user_id, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [user_id]
         );
 
         return { comments: rows, total };

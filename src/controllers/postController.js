@@ -1,8 +1,17 @@
 const Post = require('../models/Post');
 const { success, error } = require('../utils/response');
+const redisClient = require('../config/redis'); // 引入Redis客户端
+
+// 启动时检查Redis状态
+setTimeout(() => {
+    console.log('\n[postController] Redis状态检查:');
+    console.log('  - redisClient 存在:', !!redisClient);
+    console.log('  - redisClient.isReady:', redisClient?.isReady);
+    console.log('  - redisClient.isOpen:', redisClient?.isOpen);
+}, 2000);
 
 /**
- * 创建帖子
+ * 创建帖子（改造版 - 增加Redis支持）
  */
 exports.createPost = async (req, res) => {
     try {
@@ -32,10 +41,25 @@ exports.createPost = async (req, res) => {
             content
         });
 
-        success(res, '帖子创建成功', post, 201);
+        // ========== Redis扩展功能 ==========
+        // 初始化Redis数据（使用await确保写入成功）
+        const postId = post.post_id;
+        try {
+            await redisClient.set(`post:views:${postId}`, '0');
+            await redisClient.zAdd('ranking:hot:weekly', {
+                score: 0,
+                value: postId.toString()
+            });
+            console.log(`✅ Redis初始化成功: post:${postId}`);
+        } catch (err) {
+            console.error('❌ Redis初始化失败:', err.message);
+        }
+        // ===================================
+
+        return success(res, post, '帖子创建成功', 201);
     } catch (err) {
         console.error('创建帖子失败:', err);
-        error(res, '创建帖子失败: ' + err.message, 500);
+        return error(res, '创建帖子失败: ' + err.message, 500);
     }
 };
 
@@ -61,7 +85,7 @@ exports.getPostList = async (req, res) => {
             orderBy
         });
 
-        success(res, '获取帖子列表成功', {
+        return success(res, {
             posts,
             pagination: {
                 page: parseInt(page),
@@ -69,15 +93,17 @@ exports.getPostList = async (req, res) => {
                 total,
                 totalPages: Math.ceil(total / pageSize)
             }
-        });
+        }, '获取帖子列表成功');
     } catch (err) {
         console.error('获取帖子列表失败:', err);
-        error(res, '获取帖子列表失败', 500);
+        console.error('错误详情:', err.message);
+        console.error('错误堆栈:', err.stack);
+        return error(res, '获取帖子列表失败: ' + err.message, 500);
     }
 };
 
 /**
- * 获取帖子详情
+ * 获取帖子详情（改造版 - 使用Redis计数）
  */
 exports.getPostDetail = async (req, res) => {
     try {
@@ -89,14 +115,40 @@ exports.getPostDetail = async (req, res) => {
             return error(res, '帖子不存在', 404);
         }
 
-        // 增加浏览量
-        await Post.incrementViews(id);
-        post.view_count += 1;
+        // ========== Redis扩展功能 ==========
+        if (redisClient && redisClient.isReady) {
+            try {
+                // 1. 确保Key存在，如果不存在则初始化为当前MySQL值
+                const exists = await redisClient.exists(`post:views:${id}`);
 
-        success(res, '获取帖子详情成功', post);
+                if (!exists) {
+                    await redisClient.set(`post:views:${id}`, String(post.view_count));
+                    // 同时初始化排行榜
+                    await redisClient.zAdd('ranking:hot:weekly', {
+                        score: post.view_count,
+                        value: String(id)
+                    });
+                }
+
+                // 2. 浏览量+1
+                const newViews = await redisClient.incr(`post:views:${id}`);
+
+                // 3. 同步更新排行榜分数
+                await redisClient.zIncrBy('ranking:hot:weekly', 1, String(id));
+
+                // 4. 使用Redis中的实时浏览量
+                post.view_count = newViews;
+            } catch (err) {
+                console.error('Redis操作失败:', err.message);
+                // Redis失败时使用MySQL数据
+            }
+        }
+        // ===================================
+
+        return success(res, post, '获取帖子详情成功');
     } catch (err) {
         console.error('获取帖子详情失败:', err);
-        error(res, '获取帖子详情失败', 500);
+        return error(res, '获取帖子详情失败: ' + err.message, 500);
     }
 };
 
@@ -148,10 +200,10 @@ exports.updatePost = async (req, res) => {
         // 更新帖子
         const updatedPost = await Post.update(id, updateData);
 
-        success(res, '帖子更新成功', updatedPost);
+        return success(res, updatedPost, '帖子更新成功');
     } catch (err) {
         console.error('更新帖子失败:', err);
-        error(res, '更新帖子失败: ' + err.message, 500);
+        return error(res, '更新帖子失败: ' + err.message, 500);
     }
 };
 
@@ -177,10 +229,10 @@ exports.deletePost = async (req, res) => {
         // 删除帖子(包含事务处理:删除评论、收藏,更新计数)
         await Post.delete(id);
 
-        success(res, '帖子删除成功');
+        return success(res, null, '帖子删除成功');
     } catch (err) {
         console.error('删除帖子失败:', err);
-        error(res, '删除帖子失败: ' + err.message, 500);
+        return error(res, '删除帖子失败: ' + err.message, 500);
     }
 };
 
@@ -201,7 +253,7 @@ exports.searchPosts = async (req, res) => {
             parseInt(pageSize)
         );
 
-        success(res, '搜索成功', {
+        return success(res, {
             posts,
             keyword,
             pagination: {
@@ -210,10 +262,10 @@ exports.searchPosts = async (req, res) => {
                 total,
                 totalPages: Math.ceil(total / pageSize)
             }
-        });
+        }, '搜索成功');
     } catch (err) {
         console.error('搜索帖子失败:', err);
-        error(res, '搜索失败: ' + err.message, 500);
+        return error(res, '搜索失败: ' + err.message, 500);
     }
 };
 
@@ -233,7 +285,7 @@ exports.getMyPosts = async (req, res) => {
             orderBy: 'created_at DESC'
         });
 
-        success(res, '获取我的帖子列表成功', {
+        return success(res, {
             posts,
             pagination: {
                 page: parseInt(page),
@@ -241,9 +293,9 @@ exports.getMyPosts = async (req, res) => {
                 total,
                 totalPages: Math.ceil(total / pageSize)
             }
-        });
+        }, '获取我的帖子列表成功');
     } catch (err) {
         console.error('获取我的帖子列表失败:', err);
-        error(res, '获取我的帖子列表失败', 500);
+        return error(res, '获取我的帖子列表失败: ' + err.message, 500);
     }
 };

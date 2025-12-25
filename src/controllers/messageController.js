@@ -1,8 +1,9 @@
 const Message = require('../models/Message');
 const { success, error } = require('../utils/response');
+const redisClient = require('../config/redis'); // 引入Redis客户端
 
 /**
- * 发送消息
+ * 发送消息（改造版 - 增加Redis未读计数）
  */
 async function sendMessage(req, res) {
     try {
@@ -29,6 +30,13 @@ async function sendMessage(req, res) {
             receiver_id,
             content
         });
+
+        // ========== Redis扩展功能 ==========
+        // 接收者未读消息+1（异步执行）
+        redisClient.hIncrBy(`user:unread:${receiver_id}`, 'messages', 1).catch(err => {
+            console.error('Redis HINCRBY失败:', err);
+        });
+        // ===================================
 
         res.status(201).json(success(message, '发送成功'));
     } catch (err) {
@@ -94,7 +102,7 @@ async function getConversationList(req, res) {
 }
 
 /**
- * 标记与某用户的所有消息为已读
+ * 标记与某用户的所有消息为已读（改造版 - 同步Redis计数）
  */
 async function markAsRead(req, res) {
     try {
@@ -102,6 +110,21 @@ async function markAsRead(req, res) {
         const user_id = req.user.userId;
 
         const count = await Message.markAsRead(user_id, sender_id);
+
+        // ========== Redis扩展功能 ==========
+        // 从Redis减少未读消息数（异步执行）
+        if (count > 0) {
+            redisClient.hIncrBy(`user:unread:${user_id}`, 'messages', -count).then(async () => {
+                // 确保未读数不小于0
+                const currentUnread = await redisClient.hGet(`user:unread:${user_id}`, 'messages');
+                if (parseInt(currentUnread) < 0) {
+                    await redisClient.hSet(`user:unread:${user_id}`, 'messages', '0');
+                }
+            }).catch(err => {
+                console.error('Redis HINCRBY失败:', err);
+            });
+        }
+        // ===================================
 
         res.json(success({ count }, `已标记${count}条消息为已读`));
     } catch (err) {
@@ -111,12 +134,31 @@ async function markAsRead(req, res) {
 }
 
 /**
- * 获取未读消息总数
+ * 获取未读消息总数（改造版 - 优先使用Redis）
  */
 async function getUnreadCount(req, res) {
     try {
         const user_id = req.user.userId;
+
+        // ========== Redis扩展功能 ==========
+        // 优先从Redis获取未读数（速度更快）
+        try {
+            const redisUnread = await redisClient.hGet(`user:unread:${user_id}`, 'messages');
+            if (redisUnread !== null) {
+                return res.json(success({ unread_count: parseInt(redisUnread) || 0 }));
+            }
+        } catch (err) {
+            console.error('Redis HGET失败，使用MySQL:', err);
+        }
+        // ===================================
+
+        // Redis未命中，使用MySQL查询
         const count = await Message.getUnreadCount(user_id);
+
+        // 同步到Redis（异步执行）
+        redisClient.hSet(`user:unread:${user_id}`, 'messages', count.toString()).catch(err => {
+            console.error('Redis HSET失败:', err);
+        });
 
         res.json(success({ unread_count: count }));
     } catch (err) {

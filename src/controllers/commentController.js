@@ -11,12 +11,12 @@ async function createComment(req, res) {
 
         // 验证必填字段
         if (!post_id || !content) {
-            return res.status(400).json(error('帖子ID和评论内容不能为空'));
+            return error(res, '帖子ID和评论内容不能为空', 400);
         }
 
         // 验证评论内容长度
         if (content.length < 1 || content.length > 1000) {
-            return res.status(400).json(error('评论内容长度应在1-1000字符之间'));
+            return error(res, '评论内容长度应在1-1000字符之间', 400);
         }
 
         // 创建评论
@@ -27,10 +27,10 @@ async function createComment(req, res) {
             parent_id: parent_id || null
         });
 
-        res.status(201).json(success(comment, '评论成功'));
+        return success(res, comment, '评论成功', 201);
     } catch (err) {
         console.error('创建评论失败:', err);
-        res.status(500).json(error('评论失败'));
+        return error(res, '评论失败: ' + err.message, 500);
     }
 }
 
@@ -40,6 +40,11 @@ async function createComment(req, res) {
 async function getCommentsByPost(req, res) {
     try {
         const post_id = parseInt(req.params.postId);
+
+        if (isNaN(post_id)) {
+            return error(res, '无效的帖子ID', 400);
+        }
+
         const page = parseInt(req.query.page) || 1;
         const pageSize = parseInt(req.query.pageSize) || 20;
 
@@ -54,16 +59,16 @@ async function getCommentsByPost(req, res) {
             comment.replies = await Comment.findReplies(comment.comment_id);
         }
 
-        res.json(success({
+        return success(res, {
             list: result.comments,
             total: result.total,
             page,
             pageSize,
             totalPages: Math.ceil(result.total / pageSize)
-        }));
+        }, '获取评论列表成功');
     } catch (err) {
         console.error('获取评论列表失败:', err);
-        res.status(500).json(error('获取评论列表失败'));
+        return error(res, '获取评论列表失败: ' + err.message, 500);
     }
 }
 
@@ -75,10 +80,10 @@ async function getReplies(req, res) {
         const parentId = parseInt(req.params.commentId);
         const replies = await Comment.findReplies(parentId);
 
-        res.json(success(replies));
+        return success(res, replies, '获取回复列表成功');
     } catch (err) {
         console.error('获取回复列表失败:', err);
-        res.status(500).json(error('获取回复列表失败'));
+        return error(res, '获取回复列表失败: ' + err.message, 500);
     }
 }
 
@@ -93,11 +98,11 @@ async function deleteComment(req, res) {
         // 检查评论是否存在且属于当前用户
         const isOwner = await Comment.isOwnedByUser(commentId, userId);
         if (!isOwner) {
-            return res.status(403).json(error('无权删除此评论'));
+            return error(res, '无权删除此评论', 403);
         }
 
         await Comment.delete(commentId);
-        res.json(success(null, '删除成功'));
+        return success(res, null, '删除成功');
     } catch (err) {
         console.error('删除评论失败:', err);
         res.status(500).json(error(err.message || '删除评论失败'));

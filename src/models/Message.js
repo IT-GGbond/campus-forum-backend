@@ -53,7 +53,9 @@ class Message {
      * @returns {Promise<Object>} { messages, total }
      */
     static async getConversation({ user_id, other_user_id, page = 1, pageSize = 50 }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 50;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -81,8 +83,8 @@ class Message {
              WHERE (m.sender_id = ? AND m.receiver_id = ?) 
                 OR (m.sender_id = ? AND m.receiver_id = ?)
              ORDER BY m.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [user_id, other_user_id, other_user_id, user_id, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [user_id, other_user_id, other_user_id, user_id]
         );
 
         return { messages: rows, total };
@@ -94,7 +96,9 @@ class Message {
      * @returns {Promise<Array>}
      */
     static async getConversationList({ user_id, page = 1, pageSize = 20 }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 获取最近联系人列表
         const [rows] = await pool.execute(
@@ -126,8 +130,8 @@ class Message {
                 GROUP BY sender_id
              ) as unread ON conversations.other_user_id = unread.sender_id
              ORDER BY m.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [user_id, user_id, user_id, user_id, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [user_id, user_id, user_id, user_id]
         );
 
         return rows;

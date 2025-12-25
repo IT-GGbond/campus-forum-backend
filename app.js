@@ -4,6 +4,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const { testConnection } = require('./src/config/db');
+const redisClient = require('./src/config/redis'); // 引入Redis客户端
 
 // 导入路由
 const authRoutes = require('./src/routes/auth');
@@ -11,6 +12,7 @@ const postRoutes = require('./src/routes/posts');
 const commentRoutes = require('./src/routes/comments');
 const favoriteRoutes = require('./src/routes/favorites');
 const messageRoutes = require('./src/routes/messages');
+const rankingRoutes = require('./src/routes/ranking'); // 新增排行榜路由
 
 // 创建Express应用
 const app = express();
@@ -72,6 +74,54 @@ app.get('/api/test/db', async (req, res) => {
     }
 });
 
+// ========== Redis扩展功能 ==========
+// 测试Redis连接
+app.get('/api/test/redis', async (req, res) => {
+    try {
+        console.log('[Redis测试] 开始测试Redis连接...');
+        console.log('[Redis测试] 连接状态:', redisClient.isOpen ? '已连接' : '未连接');
+
+        // 测试写入
+        console.log('[Redis测试] 执行 SET test:connection OK');
+        await redisClient.set('test:connection', 'OK', { EX: 10 });
+        console.log('[Redis测试] ✅ SET 成功');
+
+        // 测试读取
+        console.log('[Redis测试] 执行 GET test:connection');
+        const value = await redisClient.get('test:connection');
+        console.log('[Redis测试] ✅ GET 成功, 值:', value);
+
+        // 获取Redis信息
+        const dbSize = await redisClient.dbSize();
+        console.log('[Redis测试] ✅ DBSIZE:', dbSize);
+
+        // 获取所有keys
+        const keys = await redisClient.keys('*');
+        console.log('[Redis测试] ✅ 所有keys:', keys);
+
+        res.json({
+            success: true,
+            message: 'Redis连接正常',
+            data: {
+                is_connected: redisClient.isOpen,
+                test_value: value,
+                db_size: dbSize,
+                all_keys: keys
+            }
+        });
+    } catch (error) {
+        console.error('[Redis测试] ❌ 测试失败:', error);
+        console.error('[Redis测试] 错误详情:', error.stack);
+        res.status(500).json({
+            success: false,
+            message: 'Redis连接失败',
+            error: error.message,
+            stack: error.stack
+        });
+    }
+});
+// ===================================
+
 // 获取所有分类
 app.get('/api/categories', async (req, res) => {
     try {
@@ -90,94 +140,11 @@ app.get('/api/categories', async (req, res) => {
     }
 });
 
-// 获取帖子列表（分页）
-app.get('/api/posts', async (req, res) => {
-    try {
-        const { pool } = require('./src/config/db');
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = (page - 1) * limit;
-
-        const [rows] = await pool.query(`
-            SELECT 
-                p.post_id, p.title, p.content, p.price, p.location,
-                p.view_count, p.comment_count, p.favorite_count,
-                p.created_at,
-                u.username, u.school,
-                c.category_name
-            FROM posts p
-            LEFT JOIN users u ON p.user_id = u.user_id
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            WHERE p.status = 'normal'
-            ORDER BY p.created_at DESC
-            LIMIT ? OFFSET ?
-        `, [limit, offset]);
-
-        const [countResult] = await pool.query('SELECT COUNT(*) as total FROM posts WHERE status = "normal"');
-
-        res.json({
-            success: true,
-            data: {
-                posts: rows,
-                pagination: {
-                    page,
-                    limit,
-                    total: countResult[0].total,
-                    totalPages: Math.ceil(countResult[0].total / limit)
-                }
-            }
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: '获取帖子列表失败',
-            error: error.message
-        });
-    }
-});
-
-// 获取帖子详情
-app.get('/api/posts/:id', async (req, res) => {
-    try {
-        const { pool } = require('./src/config/db');
-        const postId = req.params.id;
-
-        const [rows] = await pool.query(`
-            SELECT 
-                p.*,
-                u.username, u.school, u.grade,
-                c.category_name
-            FROM posts p
-            LEFT JOIN users u ON p.user_id = u.user_id
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            WHERE p.post_id = ? AND p.status = 'normal'
-        `, [postId]);
-
-        if (rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '帖子不存在'
-            });
-        }
-
-        await pool.query('UPDATE posts SET view_count = view_count + 1 WHERE post_id = ?', [postId]);
-
-        res.json({
-            success: true,
-            data: rows[0]
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: '获取帖子详情失败',
-            error: error.message
-        });
-    }
-});
-
 // ============================================
 // API路由模块
 // ============================================
+// 注意：帖子相关路由已移至 src/routes/posts.js 和 src/controllers/postController.js
+// 避免在此处重复定义，否则会导致路由冲突，Redis功能无法生效
 
 // 认证路由
 app.use('/api/auth', authRoutes);
@@ -193,6 +160,11 @@ app.use('/api', favoriteRoutes);
 
 // 消息路由
 app.use('/api', messageRoutes);
+
+// ========== Redis扩展功能 ==========
+// 排行榜路由（新增）
+app.use('/api/ranking', rankingRoutes);
+// ===================================
 
 // ============================================
 // 404处理
@@ -226,12 +198,27 @@ const startServer = async () => {
     try {
         await testConnection();
 
+        // ========== Redis扩展功能 ==========
+        // 启动定时同步任务（可选）
+        const { startScheduledTasks, initRedisFromMySQL } = require('./src/tasks/syncRedisToMySQL');
+
+        // 初始化Redis数据
+        if (process.env.INIT_REDIS === 'true') {
+            await initRedisFromMySQL();
+        }
+
+        // 启动定时任务
+        if (process.env.ENABLE_SYNC === 'true') {
+            startScheduledTasks();
+        }
+        // ===================================
+
         app.listen(PORT, '0.0.0.0', () => {
             console.log('');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('🚀 校园论坛后端服务启动成功！');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log(`   环境: ${process.env.NODE_ENV}`);
+            console.log(`   环境: ${process.env.NODE_ENV || 'development'}`);
             console.log(`   端口: ${PORT}`);
             console.log(`   本地访问: http://localhost:${PORT}`);
             console.log(`   网络访问: http://192.168.190.247:${PORT}`);
@@ -241,6 +228,7 @@ const startServer = async () => {
             console.log('   基础接口:');
             console.log(`     GET  /                           - 健康检查`);
             console.log(`     GET  /api/test/db                - 测试数据库`);
+            console.log(`     GET  /api/test/redis             - 测试Redis（新增）`);
             console.log(`     GET  /api/categories             - 获取所有分类`);
             console.log(`     GET  /api/posts                  - 获取帖子列表`);
             console.log(`     GET  /api/posts/:id              - 获取帖子详情`);
@@ -254,11 +242,16 @@ const startServer = async () => {
             console.log('   帖子接口:');
             console.log(`     GET  /api/posts                  - 获取帖子列表`);
             console.log(`     GET  /api/posts/search           - 搜索帖子`);
-            console.log(`     GET  /api/posts/:id              - 获取帖子详情`);
+            console.log(`     GET  /api/posts/:id              - 获取帖子详情（Redis加速）`);
             console.log(`     POST /api/posts                  - 创建帖子（需token）`);
             console.log(`     PUT  /api/posts/:id              - 更新帖子（需token）`);
             console.log(`     DELETE /api/posts/:id            - 删除帖子（需token）`);
             console.log(`     GET  /api/posts/my/posts         - 我的帖子（需token）`);
+            console.log('');
+            console.log('   ⭐ 排行榜接口（新增Redis功能）:');
+            console.log(`     GET  /api/ranking/hot-posts      - 热门帖子TOP10`);
+            console.log(`     GET  /api/ranking/stats          - 排行榜统计`);
+            console.log(`     POST /api/ranking/refresh        - 刷新排行榜`);
             console.log('');
         });
     } catch (error) {

@@ -105,10 +105,13 @@ class Post {
         pageSize = 20,
         categoryId = null,
         userId = null,
-        status = 'published',
+        status = 'normal',
         orderBy = 'created_at DESC'
     }) {
-        const offset = (page - 1) * pageSize;
+        // 确保参数是整数
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 构建查询条件
         let whereConditions = [];
@@ -151,7 +154,7 @@ class Post {
         p.user_id,
         p.category_id,
         p.title,
-        SUBSTRING(p.content, 1, 200) as content_preview,
+        SUBSTRING(p.content, 1, 200) as content,
         p.view_count,
         p.comment_count,
         p.favorite_count,
@@ -167,8 +170,8 @@ class Post {
        LEFT JOIN categories c ON p.category_id = c.category_id
        ${whereClause}
        ORDER BY ${orderBy}
-       LIMIT ? OFFSET ?`,
-            [...queryParams, pageSize, offset]
+       LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            queryParams
         );
 
         return { posts: rows, total };
@@ -297,7 +300,10 @@ class Post {
      * @returns {Promise<Object>} { posts, total }
      */
     static async search(keyword, page = 1, pageSize = 20) {
-        const offset = (page - 1) * pageSize;
+        // 确保参数是整数
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -316,7 +322,7 @@ class Post {
         p.user_id,
         p.category_id,
         p.title,
-        SUBSTRING(p.content, 1, 200) as content_preview,
+        SUBSTRING(p.content, 1, 200) as content,
         p.view_count,
         p.comment_count,
         p.favorite_count,
@@ -333,8 +339,8 @@ class Post {
        WHERE p.status = 'normal'
        AND MATCH(p.title, p.content) AGAINST(? IN NATURAL LANGUAGE MODE)
        ORDER BY relevance DESC, p.created_at DESC
-       LIMIT ? OFFSET ?`,
-            [keyword, keyword, pageSize, offset]
+       LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [keyword, keyword]
         );
 
         return { posts: rows, total };

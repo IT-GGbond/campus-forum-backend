@@ -127,7 +127,9 @@ class Favorite {
      * @returns {Promise<Object>} { favorites, total }
      */
     static async findByUserId({ user_id, page = 1, pageSize = 20 }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -162,8 +164,8 @@ class Favorite {
              LEFT JOIN categories c ON p.category_id = c.category_id
              WHERE f.user_id = ?
              ORDER BY f.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [user_id, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [user_id]
         );
 
         return { favorites: rows, total };
@@ -175,7 +177,9 @@ class Favorite {
      * @returns {Promise<Object>}
      */
     static async findByPostId({ post_id, page = 1, pageSize = 20 }) {
-        const offset = (page - 1) * pageSize;
+        const pageNum = parseInt(page) || 1;
+        const pageSizeNum = parseInt(pageSize) || 20;
+        const offset = (pageNum - 1) * pageSizeNum;
 
         // 查询总数
         const [countResult] = await pool.execute(
@@ -197,8 +201,8 @@ class Favorite {
              LEFT JOIN users u ON f.user_id = u.user_id
              WHERE f.post_id = ?
              ORDER BY f.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [post_id, pageSize, offset]
+             LIMIT ${pageSizeNum} OFFSET ${offset}`,
+            [post_id]
         );
 
         return { users: rows, total };
@@ -218,7 +222,7 @@ class Favorite {
         const placeholders = postIds.map(() => '?').join(',');
         const [rows] = await pool.execute(
             `SELECT post_id FROM favorites 
-             WHERE user_id = ? AND post_id IN (${placeholders})`,
+             WHERE user_id = ? AND post_id IN(${placeholders})`,
             [userId, ...postIds]
         );
 
